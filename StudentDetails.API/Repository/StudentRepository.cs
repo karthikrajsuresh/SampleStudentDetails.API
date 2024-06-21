@@ -1,6 +1,10 @@
-﻿using StudentDetails.API.Contracts;
+﻿using Microsoft.Extensions.Configuration;
+using StudentDetails.API.Contracts;
 using StudentDetails.API.Models;
+using System.Collections.Generic;
 using System.Data.SqlClient;
+using System.Linq;
+using System.Threading.Tasks;
 using Dapper;
 
 namespace StudentDetails.API.Repositories
