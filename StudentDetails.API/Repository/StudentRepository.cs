@@ -1,10 +1,6 @@
-﻿using Microsoft.Extensions.Configuration;
-using StudentDetails.API.Contracts;
+﻿using StudentDetails.API.Contracts;
 using StudentDetails.API.Models;
-using System.Collections.Generic;
 using System.Data.SqlClient;
-using System.Linq;
-using System.Threading.Tasks;
 using Dapper;
 
 namespace StudentDetails.API.Repositories
@@ -25,36 +21,53 @@ namespace StudentDetails.API.Repositories
             var studentQuery = @"
                 SELECT s.StudentId, s.Name, 
                        c.ClassId, c.Name AS ClassName, 
-                       sch.SchoolId, sch.Name AS SchoolName
+                       sch.SchoolId, sch.Name AS SchoolName,
+                       m.MarkId, m.Subject, m.Score
                 FROM Students s
                 INNER JOIN Classes c ON s.ClassId = c.ClassId
                 INNER JOIN Schools sch ON c.SchoolId = sch.SchoolId
+                LEFT JOIN Marks m ON s.StudentId = m.StudentId
                 WHERE s.StudentId = @StudentId;
-
-                SELECT m.MarkId, m.Subject, m.Score
-                FROM Marks m
-                WHERE m.StudentId = @StudentId;
             ";
 
-            using var multi = await connection.QueryMultipleAsync(studentQuery, new { StudentId = studentId });
+            var studentDictionary = new Dictionary<int, Student>();
 
-            var student = (await multi.ReadAsync<Student>()).FirstOrDefault();
-            if (student == null)
-            {
-                return null;
-            }
+            var student = (await connection.QueryAsync<Student, Class, School, Mark, Student>(
+                studentQuery,
+                (student, classItem, school, mark) =>
+                {
+                    if (!studentDictionary.TryGetValue(student.StudentId, out var currentStudent))
+                    {
+                        currentStudent = student;
+                        studentDictionary.Add(currentStudent.StudentId, currentStudent);
+                    }
 
-            var classes = (await multi.ReadAsync<Class>()).ToList();
-            var schools = (await multi.ReadAsync<School>()).ToList();
+                    if (currentStudent.Classes == null)
+                    {
+                        currentStudent.Classes = new List<Class>();
+                    }
 
-            // Assign the correct School to each Class
-            foreach (var classItem in classes)
-            {
-                classItem.School = schools.FirstOrDefault(s => s.SchoolId == classItem.SchoolId);
-            }
+                    if (!currentStudent.Classes.Any(c => c.ClassId == classItem.ClassId))
+                    {
+                        classItem.School = school;
+                        currentStudent.Classes.Add(classItem);
+                    }
 
-            student.Classes = classes;
-            student.Marks = (await multi.ReadAsync<Mark>()).ToList();
+                    if (currentStudent.Marks == null)
+                    {
+                        currentStudent.Marks = new List<Mark>();
+                    }
+
+                    if (mark != null && !currentStudent.Marks.Any(m => m.MarkId == mark.MarkId))
+                    {
+                        currentStudent.Marks.Add(mark);
+                    }
+
+                    return currentStudent;
+                },
+                new { StudentId = studentId },
+                splitOn: "ClassId,SchoolId,MarkId"
+            )).FirstOrDefault();
 
             return student;
         }
